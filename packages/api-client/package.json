@@ -1,0 +1,17 @@
+{
+  "name": "@turf/api-client",
+  "version": "1.0.0",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@turf/shared-types": "*",
+    "axios": "^1.7.7"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3"
+  }
+}

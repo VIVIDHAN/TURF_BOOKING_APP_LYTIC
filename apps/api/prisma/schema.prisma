@@ -1,0 +1,495 @@
+// Prisma schema for Turf Booking Platform
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum Role {
+  CUSTOMER
+  TURF_OWNER
+  OWNER_STAFF
+  TOURNAMENT_ORGANIZER
+  PLATFORM_ADMIN
+  PLATFORM_SUPER_ADMIN
+}
+
+enum BookingStatus {
+  HOLD
+  PENDING_PAYMENT
+  CONFIRMED
+  CANCELLED
+  COMPLETED
+  REFUNDED
+}
+
+enum PaymentStatus {
+  INITIATED
+  PENDING
+  SUCCESS
+  FAILED
+  REFUNDED
+}
+
+enum SportType {
+  CRICKET
+  FOOTBALL
+  BADMINTON
+  TENNIS
+  BASKETBALL
+  VOLLEYBALL
+  PADEL
+  SWIMMING
+}
+
+enum SurfaceType {
+  NATURAL_GRASS
+  ARTIFICIAL_TURF
+  CLAY
+  HARD_COURT
+  WOODEN_FLOORING
+  SYNTHETIC_MAT
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  SUSPENDED
+}
+
+enum TournamentFormat {
+  KNOCKOUT
+  LEAGUE
+  ROUND_ROBIN
+  GROUP_STAGE_KNOCKOUT
+}
+
+enum MatchStatus {
+  SCHEDULED
+  LIVE
+  COMPLETED
+  CANCELLED
+  ABANDONED
+}
+
+// -------------------------------------------------------------
+// USER & IDENTITY
+// -------------------------------------------------------------
+
+model User {
+  id           String    @id @default(uuid())
+  email        String    @unique
+  phone        String    @unique
+  passwordHash String
+  fullName     String
+  avatarUrl    String?
+  role         Role      @default(CUSTOMER)
+  isActive     Boolean   @default(true)
+  isVerified   Boolean   @default(false)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  ownerProfile  OwnerProfile?
+  bookings      Booking[]
+  slotHolds     SlotHold[]
+  payments      Payment[]
+  reviews       Review[]
+  captainTeams  Team[]                  @relation("TeamCaptain")
+  teamMembers   TeamMember[]
+  tournaments   Tournament[]            @relation("TournamentOrganizer")
+  playerStats   PlayerStats[]
+  notifications Notification[]
+  adminLogs     AdminActivityLog[]
+
+  @@index([role])
+  @@index([email])
+  @@index([phone])
+}
+
+model OwnerProfile {
+  id                         String   @id @default(uuid())
+  userId                     String   @unique
+  user                       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  businessName               String
+  businessRegistrationNumber String?
+  gstNumber                  String?
+  bankAccountNumber          String?
+  bankIfsc                   String?
+  panNumber                  String?
+  isVerified                 Boolean  @default(false)
+  createdAt                  DateTime @default(now())
+  updatedAt                  DateTime @updatedAt
+
+  venues TurfVenue[]
+}
+
+// -------------------------------------------------------------
+// TURF VENUES & GROUNDS
+// -------------------------------------------------------------
+
+model TurfVenue {
+  id             String         @id @default(uuid())
+  ownerId        String
+  owner          OwnerProfile   @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  name           String
+  slug           String         @unique
+  description    String
+  address        String
+  city           String
+  state          String
+  postalCode     String
+  latitude       Float
+  longitude      Float
+  contactPhone   String
+  contactEmail   String
+  rules          String?
+  approvalStatus ApprovalStatus @default(PENDING)
+  isActive       Boolean        @default(true)
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  grounds        TurfGround[]
+  images         TurfImage[]
+  facilities     VenueFacility[]
+  operatingHours OperatingHour[]
+  reviews        Review[]
+  tournaments    Tournament[]
+
+  @@index([city])
+  @@index([approvalStatus])
+  @@index([latitude, longitude])
+}
+
+model TurfImage {
+  id        String    @id @default(uuid())
+  venueId   String
+  venue     TurfVenue @relation(fields: [venueId], references: [id], onDelete: Cascade)
+  imageUrl  String
+  isCover   Boolean   @default(false)
+  order     Int       @default(0)
+  createdAt DateTime  @default(now())
+
+  @@index([venueId])
+}
+
+model Facility {
+  id       String          @id @default(uuid())
+  name     String          @unique
+  iconName String
+  venues   VenueFacility[]
+}
+
+model VenueFacility {
+  venueId    String
+  facilityId String
+  venue      TurfVenue @relation(fields: [venueId], references: [id], onDelete: Cascade)
+  facility   Facility  @relation(fields: [facilityId], references: [id], onDelete: Cascade)
+
+  @@id([venueId, facilityId])
+}
+
+model TurfGround {
+  id                  String       @id @default(uuid())
+  venueId             String
+  venue               TurfVenue    @relation(fields: [venueId], references: [id], onDelete: Cascade)
+  name                String       // e.g. "Pitch 1 (7-a-side)"
+  sports              SportType[]
+  surfaceType         SurfaceType  @default(ARTIFICIAL_TURF)
+  dimensions          String?      // e.g. "40m x 20m"
+  capacity            Int?
+  hourlyPrice         Decimal      @db.Decimal(10, 2)
+  peakHourPrice       Decimal?     @db.Decimal(10, 2)
+  slotDurationMinutes Int          @default(60)
+  isActive            Boolean      @default(true)
+  createdAt           DateTime     @default(now())
+  updatedAt           DateTime     @updatedAt
+
+  bookings  Booking[]
+  slotHolds SlotHold[]
+  matches   Match[]
+
+  @@index([venueId])
+}
+
+model OperatingHour {
+  id        String    @id @default(uuid())
+  venueId   String
+  venue     TurfVenue @relation(fields: [venueId], references: [id], onDelete: Cascade)
+  dayOfWeek Int       // 0 = Sunday, 1 = Monday, etc.
+  openTime  String    // HH:mm format e.g. "06:00"
+  closeTime String    // HH:mm format e.g. "23:00"
+  isClosed  Boolean   @default(false)
+
+  @@unique([venueId, dayOfWeek])
+}
+
+// -------------------------------------------------------------
+// AVAILABILITY, HOLDS & BOOKINGS
+// -------------------------------------------------------------
+
+model SlotHold {
+  id        String   @id @default(uuid())
+  groundId  String
+  ground    TurfGround @relation(fields: [groundId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  startTime DateTime
+  endTime   DateTime
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  booking   Booking?
+
+  @@index([groundId, startTime, endTime])
+  @@index([expiresAt])
+}
+
+model Booking {
+  id                 String        @id @default(uuid())
+  bookingReference   String        @unique // Human-friendly e.g. "TRF-20261125-ABCD"
+  userId             String
+  user               User          @relation(fields: [userId], references: [id], onDelete: Restrict)
+  groundId           String
+  ground             TurfGround    @relation(fields: [groundId], references: [id], onDelete: Restrict)
+  holdId             String?       @unique
+  hold               SlotHold?     @relation(fields: [holdId], references: [id], onDelete: SetNull)
+  date               DateTime      @db.Date
+  startTime          DateTime
+  endTime            DateTime
+  durationMinutes    Int
+  totalAmount        Decimal       @db.Decimal(10, 2)
+  taxAmount          Decimal       @db.Decimal(10, 2)
+  convenienceFee     Decimal       @db.Decimal(10, 2)
+  finalAmount        Decimal       @db.Decimal(10, 2)
+  status             BookingStatus @default(PENDING_PAYMENT)
+  cancellationReason String?
+  cancelledAt        DateTime?
+  refundAmount       Decimal?      @db.Decimal(10, 2)
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+
+  payments Payment[]
+  review   Review?
+
+  @@index([groundId, startTime, endTime])
+  @@index([userId])
+  @@index([status])
+  @@index([date])
+}
+
+// -------------------------------------------------------------
+// PAYMENTS & REFUNDS
+// -------------------------------------------------------------
+
+model Payment {
+  id                String        @id @default(uuid())
+  bookingId         String
+  booking           Booking       @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+  userId            String
+  user              User          @relation(fields: [userId], references: [id], onDelete: Restrict)
+  amount            Decimal       @db.Decimal(10, 2)
+  currency          String        @default("INR")
+  status            PaymentStatus @default(INITIATED)
+  paymentMethod     String?
+  razorpayOrderId   String?       @unique
+  razorpayPaymentId String?       @unique
+  razorpaySignature String?
+  failureReason     String?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  refunds Refund[]
+
+  @@index([bookingId])
+  @@index([userId])
+  @@index([status])
+}
+
+model Refund {
+  id               String   @id @default(uuid())
+  paymentId        String
+  payment          Payment  @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+  amount           Decimal  @db.Decimal(10, 2)
+  razorpayRefundId String?  @unique
+  status           String   @default("PENDING")
+  reason           String
+  processedAt      DateTime?
+  createdAt        DateTime @default(now())
+
+  @@index([paymentId])
+}
+
+// -------------------------------------------------------------
+// REVIEWS
+// -------------------------------------------------------------
+
+model Review {
+  id        String    @id @default(uuid())
+  venueId   String
+  venue     TurfVenue @relation(fields: [venueId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  bookingId String?   @unique
+  booking   Booking?  @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+  rating    Int       // 1 to 5
+  comment   String?
+  createdAt DateTime  @default(now())
+
+  @@index([venueId])
+}
+
+// -------------------------------------------------------------
+// TOURNAMENTS, TEAMS & MATCHES
+// -------------------------------------------------------------
+
+model Tournament {
+  id                   String           @id @default(uuid())
+  organizerId          String
+  organizer            User             @relation("TournamentOrganizer", fields: [organizerId], references: [id])
+  venueId              String?
+  venue                TurfVenue?       @relation(fields: [venueId], references: [id], onDelete: SetNull)
+  title                String
+  description          String
+  sport                SportType
+  format               TournamentFormat @default(KNOCKOUT)
+  maxTeams             Int
+  entryFee             Decimal          @db.Decimal(10, 2)
+  prizePool            Decimal          @db.Decimal(10, 2)
+  startDate            DateTime
+  endDate              DateTime
+  registrationDeadline DateTime
+  rules                String?
+  status               String           @default("UPCOMING")
+  createdAt            DateTime         @default(now())
+  updatedAt            DateTime         @updatedAt
+
+  registrations TournamentRegistration[]
+  matches       Match[]
+
+  @@index([sport])
+  @@index([status])
+}
+
+model Team {
+  id           String   @id @default(uuid())
+  name         String
+  logoUrl      String?
+  captainId    String
+  captain      User     @relation("TeamCaptain", fields: [captainId], references: [id])
+  contactPhone String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  members       TeamMember[]
+  registrations TournamentRegistration[]
+  homeMatches   Match[]                  @relation("TeamA")
+  awayMatches   Match[]                  @relation("TeamB")
+  wonMatches    Match[]                  @relation("MatchWinner")
+
+  @@index([captainId])
+}
+
+model TeamMember {
+  id        String   @id @default(uuid())
+  teamId    String
+  team      Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role      String   @default("PLAYER")
+  joinedAt  DateTime @default(now())
+
+  @@unique([teamId, userId])
+}
+
+model TournamentRegistration {
+  id           String     @id @default(uuid())
+  tournamentId String
+  tournament   Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  teamId       String
+  team         Team       @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  status       String     @default("CONFIRMED")
+  paidAmount   Decimal    @db.Decimal(10, 2)
+  registeredAt DateTime   @default(now())
+
+  @@unique([tournamentId, teamId])
+}
+
+model Match {
+  id            String      @id @default(uuid())
+  tournamentId  String
+  tournament    Tournament  @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  groundId      String?
+  ground        TurfGround? @relation(fields: [groundId], references: [id], onDelete: SetNull)
+  teamAId       String
+  teamA         Team        @relation("TeamA", fields: [teamAId], references: [id])
+  teamBId       String
+  teamB         Team        @relation("TeamB", fields: [teamBId], references: [id])
+  scheduledTime DateTime
+  status        MatchStatus @default(SCHEDULED)
+  scoreTeamA    String?
+  scoreTeamB    String?
+  winnerTeamId  String?
+  winnerTeam    Team?       @relation("MatchWinner", fields: [winnerTeamId], references: [id])
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  @@index([tournamentId])
+}
+
+// -------------------------------------------------------------
+// PLAYER STATISTICS
+// -------------------------------------------------------------
+
+model PlayerStats {
+  id                String    @id @default(uuid())
+  userId            String
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sport             SportType
+  matchesPlayed     Int       @default(0)
+  matchesWon        Int       @default(0)
+  tournamentsPlayed Int       @default(0)
+  tournamentsWon    Int       @default(0)
+  goalsOrRuns       Int       @default(0)
+  assistsOrWickets  Int       @default(0)
+  mvpCount          Int       @default(0)
+  updatedAt         DateTime  @updatedAt
+
+  @@unique([userId, sport])
+}
+
+// -------------------------------------------------------------
+// NOTIFICATIONS & SYSTEM LOGS
+// -------------------------------------------------------------
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String
+  body      String
+  type      String   @default("GENERAL")
+  data      Json?
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([userId, isRead])
+}
+
+model AdminActivityLog {
+  id         String   @id @default(uuid())
+  adminId    String
+  admin      User     @relation(fields: [adminId], references: [id], onDelete: Cascade)
+  action     String   // e.g. "APPROVE_TURF", "ISSUE_REFUND"
+  targetType String   // e.g. "TURF_VENUE", "BOOKING"
+  targetId   String
+  details    Json?
+  ipAddress  String?
+  createdAt  DateTime @default(now())
+
+  @@index([adminId])
+  @@index([action])
+}

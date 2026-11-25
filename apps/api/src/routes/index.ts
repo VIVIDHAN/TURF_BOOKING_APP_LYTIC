@@ -1,0 +1,34 @@
+import { Router } from 'express';
+import { authRouter } from '../modules/auth/auth.routes';
+import { usersRouter } from '../modules/users/users.routes';
+import { ownersRouter } from '../modules/owners/owners.routes';
+import { turfsRouter } from '../modules/turfs/turfs.routes';
+import { facilitiesRouter } from '../modules/facilities/facilities.routes';
+import { availabilityRouter } from '../modules/availability/availability.routes';
+import { bookingsRouter } from '../modules/bookings/bookings.routes';
+import { paymentsRouter } from '../modules/payments/payments.routes';
+import { reviewsRouter } from '../modules/reviews/reviews.routes';
+import { tournamentsRouter } from '../modules/tournaments/tournaments.routes';
+import { teamsRouter } from '../modules/teams/teams.routes';
+import { matchesRouter } from '../modules/matches/matches.routes';
+import { playerStatsRouter } from '../modules/player-stats/player-stats.routes';
+import { notificationsRouter } from '../modules/notifications/notifications.routes';
+import { adminRouter } from '../modules/admin/admin.routes';
+
+export const v1Router = Router();
+
+v1Router.use('/auth', authRouter);
+v1Router.use('/users', usersRouter);
+v1Router.use('/owners', ownersRouter);
+v1Router.use('/turfs', turfsRouter);
+v1Router.use('/facilities', facilitiesRouter);
+v1Router.use('/availability', availabilityRouter);
+v1Router.use('/bookings', bookingsRouter);
+v1Router.use('/payments', paymentsRouter);
+v1Router.use('/reviews', reviewsRouter);
+v1Router.use('/tournaments', tournamentsRouter);
+v1Router.use('/teams', teamsRouter);
+v1Router.use('/matches', matchesRouter);
+v1Router.use('/player-stats', playerStatsRouter);
+v1Router.use('/notifications', notificationsRouter);
+v1Router.use('/admin', adminRouter);
